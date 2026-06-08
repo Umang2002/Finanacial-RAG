@@ -3,23 +3,36 @@
 ## What This Project Is
 End-to-end Hybrid Search RAG system for SEC financial document intelligence.
 Built for learning (understand every component) and resume (production-grade patterns).
+**100% free stack — no API costs.**
 
 ## Architecture Summary
 7-phase pipeline:
-1. Ingestion → SEC EDGAR API, PyMuPDF/pdfplumber for PDFs, BeautifulSoup for HTML
+1. Ingestion → SEC EDGAR API (free), PyMuPDF/pdfplumber for PDFs, BeautifulSoup for HTML
 2. Processing → cleaning, recursive/semantic/sentence-window/parent-child chunking, table serialization
-3. Indexing → dense (OpenAI text-embedding-3-large → Qdrant) + sparse (BM25 → Qdrant sparse vectors)
+3. Indexing → dense (BGE-M3 via sentence-transformers → Qdrant) + sparse (BM25 → Qdrant sparse vectors)
 4. Query → intent classification, HyDE, multi-query expansion, decomposition for multi-hop
-5. Retrieval → dense ANN + BM25 keyword, RRF fusion, cross-encoder reranking (Cohere or BGE)
+5. Retrieval → dense ANN + BM25 keyword, RRF fusion, cross-encoder reranking (BGE-reranker, local)
 6. Generation → context assembly, citation-aware prompting, structured output (answer + citations)
 7. Evaluation → RAGAS (faithfulness, answer_relevancy, context_precision, context_recall) + retrieval metrics (MRR, NDCG, Hit Rate)
 
 ## Key Tech Choices & Why
 - **Qdrant**: supports both dense vectors AND sparse vectors in one collection — no need for separate DBs
-- **BGE-M3**: open-source embedding model, supports dense + sparse + colbert in one model
+- **BGE-M3** (BAAI/bge-m3): free, local embedding model via sentence-transformers; dense dim = 1024
+- **BGE-reranker** (BAAI/bge-reranker-v2-m3): free cross-encoder reranker, runs locally via sentence-transformers
+- **Ollama**: free local LLM server; runs llama3.2, mistral, phi3 with no API cost
 - **RRF (Reciprocal Rank Fusion)**: simple, parameter-free fusion — outperforms weighted sum in practice
 - **RAGAS**: LLM-as-judge eval framework — measures RAG quality without human labels
 - **FinanceBench**: open QA benchmark over real SEC filings — gives credible, comparable eval numbers
+
+## Free Stack — Zero API Costs
+| Component | Tool | Cost |
+|---|---|---|
+| Embeddings | BGE-M3 (sentence-transformers) | Free, local |
+| LLM | Ollama + llama3.2 | Free, local |
+| Reranker | BGE-reranker-v2-m3 | Free, local |
+| Vector DB | Qdrant (Docker) | Free, local |
+| Ingestion | SEC EDGAR API | Free, public |
+| Observability | rich console logging | Free |
 
 ## Dataset
 - Source: SEC EDGAR (free, public API) — 10-K and 10-Q filings
@@ -32,8 +45,16 @@ Built for learning (understand every component) and resume (production-grade pat
 - Type hints on every function signature
 - Config comes from `configs/base.yaml` via Hydra — no hardcoded values in src/
 - Use `pydantic` models for all data structures that cross module boundaries
-- Log with `rich` for local dev; use LangFuse for production tracing
+- Log with `rich` for all output — no plain print()
 - One experiment = one config file override in `configs/experiments/`
+
+## Prerequisites (one-time setup)
+```bash
+# 1. Install Docker Desktop → https://www.docker.com/products/docker-desktop/
+# 2. Install Ollama → https://ollama.com/download
+ollama pull llama3.2        # ~2GB download
+# 3. BGE-M3 downloads automatically on first use (~2.3GB)
+```
 
 ## Running the Project
 ```bash
@@ -41,7 +62,7 @@ Built for learning (understand every component) and resume (production-grade pat
 docker compose up -d
 
 # Install deps
-python -m venv .venv && source .venv/bin/activate
+/opt/homebrew/bin/python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 
 # Download filings

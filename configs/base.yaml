@@ -1,4 +1,5 @@
 # Base pipeline configuration — override per experiment
+# All models are local/free. No API costs.
 
 ingestion:
   sec_user_agent: ${SEC_USER_AGENT}
@@ -15,10 +16,10 @@ chunking:
   separators: ["\n\n", "\n", ". ", " "]
 
 embeddings:
-  dense_model: text-embedding-3-large
-  dense_dimensions: 3072
-  sparse_model: bm25            # Options: bm25, splade
-  batch_size: 64
+  dense_model: BAAI/bge-m3              # Local sentence-transformers model, no API cost
+  dense_dimensions: 1024                # BGE-M3 dense output dimension
+  sparse_model: bm25                    # Options: bm25, splade
+  batch_size: 32                        # Lower than OpenAI batch — GPU/CPU memory bound
 
 indexing:
   collection_name: financial_rag
@@ -30,20 +31,22 @@ retrieval:
   top_k_dense: 20
   top_k_sparse: 20
   top_k_rerank: 5
-  hybrid_alpha: 0.5             # 0 = pure sparse, 1 = pure dense
-  reranker: cohere              # Options: cohere, bge
+  hybrid_alpha: 0.5                     # 0 = pure sparse, 1 = pure dense
+  reranker: bge                         # BAAI/bge-reranker-v2-m3, local cross-encoder, free
 
 query:
   use_hyde: true
   use_multi_query: true
-  use_decomposition: false      # Enable for multi-hop questions
+  use_decomposition: false              # Enable for multi-hop questions
   num_multi_queries: 3
 
 generation:
-  model: gpt-4o
+  provider: ollama                      # Local Ollama server, no API cost
+  model: llama3.2                       # Options: llama3.2, llama3.1, mistral, phi3
+  ollama_host: ${OLLAMA_HOST}
   temperature: 0.0
   max_tokens: 1024
-  citation_style: inline        # Options: inline, footnote, list
+  citation_style: inline                # Options: inline, footnote, list
 
 evaluation:
   dataset: data/eval/financebench.json
