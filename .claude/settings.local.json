@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3.11 --version)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(.venv/bin/pip install *)",
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(pyenv versions *)",
+      "Bash(brew --version)",
+      "Bash(brew install *)",
+      "Bash(/opt/homebrew/bin/python3.11 -m venv .venv)",
+      "Bash(.venv/bin/python --version)",
+      "Bash(.venv/bin/pip index *)",
+      "Bash(.venv/bin/pip show *)",
+      "Bash(pip download *)",
+      "Bash(pip show *)",
+      "Bash(.venv/bin/python -c \"import langchain; import qdrant_client; import ragas; print\\('Core imports OK'\\)\")"
+    ]
+  }
+}

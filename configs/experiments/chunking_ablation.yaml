@@ -1,0 +1,8 @@
+# Chunking ablation experiment — override base.yaml chunking strategy
+defaults:
+  - base
+
+chunking:
+  strategy: semantic
+  chunk_size: 256
+  chunk_overlap: 32

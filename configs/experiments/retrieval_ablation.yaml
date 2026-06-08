@@ -1,0 +1,9 @@
+# Retrieval ablation experiment — override base.yaml retrieval settings
+defaults:
+  - base
+
+retrieval:
+  hybrid_alpha: 0.7
+  top_k_dense: 30
+  top_k_sparse: 30
+  reranker: bge
