@@ -15,7 +15,11 @@
       "Bash(.venv/bin/pip show *)",
       "Bash(pip download *)",
       "Bash(pip show *)",
-      "Bash(.venv/bin/python -c \"import langchain; import qdrant_client; import ragas; print\\('Core imports OK'\\)\")"
+      "Bash(.venv/bin/python -c \"import langchain; import qdrant_client; import ragas; print\\('Core imports OK'\\)\")",
+      "Bash(gh auth *)",
+      "Bash(export GH_CONFIG_DIR=\"$HOME/.gh-config\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

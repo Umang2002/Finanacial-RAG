@@ -2,7 +2,7 @@
 # All models are local/free. No API costs.
 
 ingestion:
-  sec_user_agent: ${SEC_USER_AGENT}
+  sec_user_agent: ${oc.env:SEC_USER_AGENT}
   tickers: ["AAPL", "MSFT", "TSLA", "GOOGL", "AMZN"]
   filing_types: ["10-K", "10-Q"]
   years: [2021, 2022, 2023, 2024]
@@ -14,6 +14,10 @@ chunking:
   chunk_size: 512
   chunk_overlap: 64
   separators: ["\n\n", "\n", ". ", " "]
+  sentence_window_size: 2               # sentence_window: +/- N sentences kept as context_text
+  semantic_similarity_threshold: 0.55    # semantic: cosine sim below this starts a new chunk
+  parent_chunk_size: 2048                # parent_child: size of the context chunk fetched at generation time
+  child_chunk_size: 512                  # parent_child: size of the chunk actually embedded/indexed
 
 embeddings:
   dense_model: BAAI/bge-m3              # Local sentence-transformers model, no API cost
@@ -43,7 +47,7 @@ query:
 generation:
   provider: ollama                      # Local Ollama server, no API cost
   model: llama3.2                       # Options: llama3.2, llama3.1, mistral, phi3
-  ollama_host: ${OLLAMA_HOST}
+  ollama_host: ${oc.env:OLLAMA_HOST}
   temperature: 0.0
   max_tokens: 1024
   citation_style: inline                # Options: inline, footnote, list
