@@ -1,7 +1,8 @@
 # ── Orchestration ──────────────────────────────────────────
 langchain==0.3.25
 langchain-openai==0.3.16              # required by ragas at import time; we do NOT call OpenAI APIs
-langchain-community==0.3.24           # includes ChatOllama + OllamaEmbeddings
+langchain-community==0.3.24           # required by ragas at import time (ragas.llms.base imports ChatVertexAI)
+langchain-groq==0.2.5                 # ChatGroq — RAGAS judge LLM, pinned for langchain-core<1.0 compat
 llama-index==0.12.37
 llama-index-embeddings-openai==0.3.1  # used for BGE-M3 via sentence-transformers shim
 llama-index-vector-stores-qdrant==0.4.3
@@ -17,11 +18,13 @@ docling==2.31.0
 beautifulsoup4==4.13.4
 lxml==5.3.2
 
-# ── Embeddings & Models (all local, no API cost) ───────────
+# ── Embeddings & Models (local, no API cost) ────────────────
 sentence-transformers==3.4.1          # BGE-M3 dense embeddings + BGE-reranker cross-encoder
 torch==2.7.0
 transformers==4.51.3
-ollama                                # Python client for local Ollama LLM server
+
+# ── LLM (Groq hosted API, free tier) ────────────────────────
+groq==0.37.1                          # Python client for Groq's chat completions API
 
 # ── Sparse Retrieval ───────────────────────────────────────
 rank-bm25==0.2.2

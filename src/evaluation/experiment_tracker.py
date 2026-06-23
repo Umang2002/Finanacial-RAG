@@ -21,6 +21,29 @@ from src.utils.logging import get_logger
 logger = get_logger(__name__)
 
 _RELEVANT_CONFIG_KEYS = ("chunking", "retrieval", "query", "generation")
+_SECRET_KEY_MARKERS = ("api_key", "token", "secret", "password")
+
+
+def _redact_secrets(value: object) -> object:
+    """Recursively blank out any dict value whose key looks like a credential.
+
+    WHY: `cfg` is the *resolved* config — `${oc.env:GROQ_API_KEY}` has
+    already been substituted with the literal key by the time this function
+    sees it (see src/utils/config.py's `OmegaConf.resolve`). Logging it
+    verbatim into a git-tracked JSONL file would commit a live secret —
+    this happened once already (caught by GitHub's push protection) before
+    this function existed.
+    """
+    if isinstance(value, dict):
+        return {
+            k: "***REDACTED***"
+            if any(m in k.lower() for m in _SECRET_KEY_MARKERS)
+            else _redact_secrets(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_secrets(v) for v in value]
+    return value
 
 
 def log_experiment(cfg: DictConfig, report: EvalReport, log_path: str | Path) -> None:
@@ -29,7 +52,9 @@ def log_experiment(cfg: DictConfig, report: EvalReport, log_path: str | Path) ->
     Args:
         cfg: the resolved run config — only the sections that plausibly
             affect retrieval/generation quality are recorded (not the
-            whole tree) so the log stays readable across many runs.
+            whole tree) so the log stays readable across many runs. Any
+            credential-looking key (api_key/token/secret/password) is
+            redacted before writing — see `_redact_secrets`.
         report: this run's aggregate EvalReport.
         log_path: e.g. data/eval/experiment_log.jsonl.
     """
@@ -40,7 +65,9 @@ def log_experiment(cfg: DictConfig, report: EvalReport, log_path: str | Path) ->
         "config_name": report.config_name,
         "num_examples": report.num_examples,
         "config": {
-            key: OmegaConf.to_container(cfg[key]) for key in _RELEVANT_CONFIG_KEYS if key in cfg
+            key: _redact_secrets(OmegaConf.to_container(cfg[key]))
+            for key in _RELEVANT_CONFIG_KEYS
+            if key in cfg
         },
         "metrics": {
             "hit_rate": report.mean_hit_rate,

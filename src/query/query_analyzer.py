@@ -1,6 +1,6 @@
-"""Classifies query intent via a local LLM zero-shot prompt — decides downstream transforms to run.
+"""Classifies query intent via a Groq LLM zero-shot prompt — decides downstream transforms to run.
 
-WHAT: QueryAnalyzer.analyze() asks the local LLM to pick one intent label
+WHAT: QueryAnalyzer.analyze() asks the Groq LLM to pick one intent label
 for a raw query and wraps the result in an AnalyzedQuery.
 WHY a classifier at all: HyDE/multi-query help every query, but
 decomposition only helps genuinely multi-hop questions ("How did revenue
@@ -15,7 +15,7 @@ from __future__ import annotations
 from omegaconf import DictConfig
 
 from src.query.models import AnalyzedQuery, QueryIntent
-from src.utils.llm_client import OllamaClient
+from src.utils.llm_client import GroqClient
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -55,10 +55,12 @@ _USER_PROMPT_TEMPLATE = "Question: {query}\nLabel:"
 class QueryAnalyzer:
     """Wraps an LLM call that maps a raw query to one of `_INTENTS`."""
 
-    def __init__(self, cfg: DictConfig, llm: OllamaClient | None = None) -> None:
+    def __init__(self, cfg: DictConfig, llm: GroqClient | None = None) -> None:
         """Build the analyzer; reuse injected `llm` in tests, else build from cfg.generation."""
         self.cfg = cfg
-        self.llm = llm or OllamaClient(model=cfg.generation.model, host=cfg.generation.ollama_host)
+        self.llm = llm or GroqClient(
+            model=cfg.generation.model, api_key=cfg.generation.groq_api_key
+        )
 
     def analyze(self, query: str) -> AnalyzedQuery:
         """Classify `query` into one of `_INTENTS` and flag multi-hop questions."""

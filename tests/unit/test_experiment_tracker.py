@@ -62,3 +62,16 @@ def test_log_experiment_appends_without_overwriting_prior_runs(tmp_path: Path) -
 
 def test_load_experiments_missing_file_returns_empty_list(tmp_path: Path) -> None:
     assert load_experiments(tmp_path / "nonexistent.jsonl") == []
+
+
+def test_log_experiment_redacts_api_key_in_generation_config(tmp_path: Path) -> None:
+    log_path = tmp_path / "experiment_log.jsonl"
+    cfg = OmegaConf.create(
+        {"generation": {"model": "llama-3.3-70b-versatile", "groq_api_key": "gsk_realsecret123"}}
+    )
+
+    log_experiment(cfg, _report(), log_path)
+
+    rows = load_experiments(log_path)
+    assert rows[0]["config"]["generation"]["groq_api_key"] == "***REDACTED***"
+    assert rows[0]["config"]["generation"]["model"] == "llama-3.3-70b-versatile"

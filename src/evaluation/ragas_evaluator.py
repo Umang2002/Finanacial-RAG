@@ -2,19 +2,19 @@
 
 WHAT: RagasEvaluator.evaluate() scores one (query, answer, retrieved
 contexts, ground-truth answer) tuple with RAGAS's four LLM-judged metrics.
-WHY local Ollama + BGE-M3 instead of RAGAS's OpenAI default: CLAUDE.md
-mandates a 100% free stack — `ChatOllama` (already a project dependency,
-see requirements.txt) reuses the same local model Phase 6 generation uses
-as the judge LLM, and `_BGERagasEmbeddings` reuses Phase 3's already-loaded
-BGE-M3 model for `answer_relevancy`'s embedding similarity step instead of
-pulling a separate Ollama embedding model.
+WHY ChatGroq + local BGE-M3 instead of RAGAS's OpenAI default: `ChatGroq`
+reuses the same hosted model Phase 6 generation uses as the judge LLM
+(fast, avoids the local-model judge timeouts seen running this on Ollama),
+and `_BGERagasEmbeddings` reuses Phase 3's already-loaded local BGE-M3
+model for `answer_relevancy`'s embedding similarity step instead of an
+API embedding call.
 """
 
 from __future__ import annotations
 
 import asyncio
 
-from langchain_community.chat_models import ChatOllama
+from langchain_groq import ChatGroq
 from omegaconf import DictConfig
 from ragas import EvaluationDataset, SingleTurnSample, evaluate
 from ragas.embeddings import BaseRagasEmbeddings
@@ -56,7 +56,7 @@ class _BGERagasEmbeddings(BaseRagasEmbeddings):
 
 
 class RagasEvaluator:
-    """Wires a local ChatOllama judge + BGE-M3 embeddings into RAGAS's evaluate() call."""
+    """Wires a ChatGroq judge + local BGE-M3 embeddings into RAGAS's evaluate() call."""
 
     def __init__(
         self,
@@ -66,9 +66,9 @@ class RagasEvaluator:
     ) -> None:
         """Build the judge LLM/embeddings from cfg, or reuse injected ones in tests."""
         self.llm = llm or LangchainLLMWrapper(
-            ChatOllama(
+            ChatGroq(
                 model=cfg.generation.model,
-                base_url=cfg.generation.ollama_host,
+                api_key=cfg.generation.groq_api_key,
                 temperature=0.0,
             )
         )
@@ -86,9 +86,10 @@ class RagasEvaluator:
     ) -> RagasEvalResult:
         """Score one example with all four RAGAS metrics; a failed metric is None, not a crash.
 
-        WHY raise_exceptions=False: a 3B local model occasionally produces
-        unparsable judge output for one metric on one example — that should
-        degrade that single score to None, not abort the whole eval run.
+        WHY raise_exceptions=False: a judge call can still time out or
+        produce unparsable output for one metric on one example — that
+        should degrade that single score to None, not abort the whole
+        eval run.
         """
         dataset = EvaluationDataset(
             samples=[

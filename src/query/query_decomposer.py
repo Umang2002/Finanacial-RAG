@@ -20,7 +20,7 @@ from __future__ import annotations
 from omegaconf import DictConfig
 
 from src.query.models import DecomposedQuery
-from src.utils.llm_client import OllamaClient
+from src.utils.llm_client import GroqClient
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -37,10 +37,12 @@ _USER_PROMPT_TEMPLATE = "Question: {query}\nSub-questions:"
 class QueryDecomposer:
     """Wraps the LLM call behind multi-hop question decomposition."""
 
-    def __init__(self, cfg: DictConfig, llm: OllamaClient | None = None) -> None:
+    def __init__(self, cfg: DictConfig, llm: GroqClient | None = None) -> None:
         """Build the decomposer; reuse injected `llm` in tests, else build from cfg.generation."""
         self.cfg = cfg
-        self.llm = llm or OllamaClient(model=cfg.generation.model, host=cfg.generation.ollama_host)
+        self.llm = llm or GroqClient(
+            model=cfg.generation.model, api_key=cfg.generation.groq_api_key
+        )
 
     def decompose(self, query: str) -> DecomposedQuery:
         """Split `query` if `cfg.query.use_decomposition` is set, else return it unchanged."""

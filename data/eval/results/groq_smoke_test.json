@@ -1,0 +1,32 @@
+{
+  "config_name": "groq_smoke_test",
+  "num_examples": 1,
+  "retrieval_results": [
+    {
+      "financebench_id": "financebench_id_00552",
+      "hit_rate": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "precision_at_k": 0.0,
+      "recall_at_k": 0.0
+    }
+  ],
+  "ragas_results": [
+    {
+      "financebench_id": "financebench_id_00552",
+      "faithfulness": 0.8,
+      "answer_relevancy": 0.0,
+      "context_precision": 0.49999999995,
+      "context_recall": 0.0
+    }
+  ],
+  "mean_hit_rate": 0.0,
+  "mean_mrr": 0.0,
+  "mean_ndcg": 0.0,
+  "mean_precision_at_k": 0.0,
+  "mean_recall_at_k": 0.0,
+  "mean_faithfulness": 0.8,
+  "mean_answer_relevancy": 0.0,
+  "mean_context_precision": 0.49999999995,
+  "mean_context_recall": 0.0
+}

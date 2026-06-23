@@ -3,7 +3,9 @@
 ## What This Project Is
 End-to-end Hybrid Search RAG system for SEC financial document intelligence.
 Built for learning (understand every component) and resume (production-grade patterns).
-**100% free stack — no API costs.**
+**Free stack — embeddings, reranking, and the vector DB are all local; LLM calls (query
+transform, generation, RAGAS judge) run on Groq's free-tier hosted API (see LLM Provider
+Migration Notes).**
 
 ## Architecture Summary
 7-phase pipeline:
@@ -19,16 +21,16 @@ Built for learning (understand every component) and resume (production-grade pat
 - **Qdrant**: supports both dense vectors AND sparse vectors in one collection — no need for separate DBs
 - **BGE-M3** (BAAI/bge-m3): free, local embedding model via sentence-transformers; dense dim = 1024
 - **BGE-reranker** (BAAI/bge-reranker-v2-m3): free cross-encoder reranker, runs locally via sentence-transformers
-- **Ollama**: free local LLM server; runs llama3.2, mistral, phi3 with no API cost
+- **Groq**: free-tier hosted LLM API (OpenAI-compatible); fast inference, no local model loading. Replaced an earlier local-Ollama setup — see LLM Provider Migration Notes.
 - **RRF (Reciprocal Rank Fusion)**: simple, parameter-free fusion — outperforms weighted sum in practice
 - **RAGAS**: LLM-as-judge eval framework — measures RAG quality without human labels
 - **FinanceBench**: open QA benchmark over real SEC filings — gives credible, comparable eval numbers
 
-## Free Stack — Zero API Costs
+## Free Stack
 | Component | Tool | Cost |
 |---|---|---|
 | Embeddings | BGE-M3 (sentence-transformers) | Free, local |
-| LLM | Ollama + llama3.2 | Free, local |
+| LLM | Groq API (llama-3.3-70b-versatile) | Free tier, hosted |
 | Reranker | BGE-reranker-v2-m3 | Free, local |
 | Vector DB | Qdrant (embedded local-mode, no Docker) | Free, local |
 | Ingestion | SEC EDGAR API | Free, public |
@@ -50,9 +52,10 @@ Built for learning (understand every component) and resume (production-grade pat
 
 ## Prerequisites (one-time setup)
 ```bash
-# 1. Install Ollama → https://ollama.com/download
-ollama pull llama3.2:3b     # ~2GB download — tag must match exactly (no bare `llama3.2` alias)
-# 2. BGE-M3 downloads automatically on first use (~2.3GB)
+# 1. Get a free Groq API key → https://console.groq.com/keys
+#    Put it in .env as GROQ_API_KEY=gsk_... (never commit it — .env is gitignored,
+#    configs/base.yaml only references it via ${oc.env:GROQ_API_KEY})
+# 2. BGE-M3 + BGE-reranker download automatically on first use (~2.3GB + reranker)
 # Qdrant runs embedded (no Docker / no server) — see "Vector DB" row above.
 # docker-compose.yml is kept for an optional server-mode swap later
 # (QdrantClient(path=...) -> QdrantClient(url="localhost")) if Docker becomes available.
@@ -82,8 +85,10 @@ python scripts/run_eval.py --config configs/base.yaml
 Phase 7 — Evaluation (implemented, smoke-tested with n=1; see Phase 7 Notes)
 
 ## Phase 6 Notes
-- `Generator` wires `ContextAssembler` + `OllamaClient` + `output_parser`
-  into one `generate(query, chunks)` call returning a `GeneratedAnswer`.
+- `Generator` wires `ContextAssembler` + `GroqClient` (was `OllamaClient`
+  until the 2026-06-24 migration — see LLM Provider Migration Notes) +
+  `output_parser` into one `generate(query, chunks)` call returning a
+  `GeneratedAnswer`.
 - `ContextAssembler` assigns citation numbers in relevance order (1 =
   best) but physically places chunk text in sandwich order (best chunks
   at both ends, weakest in the middle) — mitigates lost-in-middle while
@@ -96,9 +101,10 @@ Phase 7 — Evaluation (implemented, smoke-tested with n=1; see Phase 7 Notes)
   retrieval -> generation -> printed answer + citations table.
 
 ## Phase 7 Notes
-- `RagasEvaluator` judges with a local `ChatOllama` (reuses `generation.model`)
-  + a BGE-M3 embeddings adapter (reuses `embeddings.dense_model`) — zero new
-  downloads, RAGAS scoring stays free/local like everything else.
+- `RagasEvaluator` judges with `ChatGroq` (reuses `generation.model`/
+  `groq_api_key`) + a BGE-M3 embeddings adapter (reuses
+  `embeddings.dense_model`, stays local) — see LLM Provider Migration Notes
+  for why this is Groq and not local Ollama as originally built.
 - `retrieval_metrics.judge_relevance()` flags a retrieved chunk relevant if
   ≥50% of its tokens are contained in FinanceBench's `evidence_text` — there's
   no chunk-level ground truth, only page-level evidence, so containment
@@ -109,17 +115,48 @@ Phase 7 — Evaluation (implemented, smoke-tested with n=1; see Phase 7 Notes)
   1 question; the AMZN ones are unreachable until Phase 1's
   `SECEdgarLoader.list_filings()` paginates EDGAR's older-filings index.
   See `docs/phases/phase7_evaluation.md` Open Items.
-- Smoke-tested end-to-end on that 1 MSFT question: ran clean (exit 0),
-  2 of 4 RAGAS metrics hit the local model's 180s judge timeout and
-  correctly degraded to `None` rather than crashing. Retrieval metrics
-  scored 0.0 — not yet root-caused (real miss vs. threshold), and n=1 isn't
-  enough to conclude anything either way.
+- Smoke-tested end-to-end on that 1 MSFT question, twice (once on local
+  Ollama, once after migrating to Groq) — both runs ran clean (exit 0).
+  Retrieval metrics scored 0.0 on both — not yet root-caused (real miss vs.
+  threshold), and n=1 isn't enough to conclude anything either way. See
+  full before/after table in `docs/phases/phase7_evaluation.md`.
+
+## LLM Provider Migration Notes (2026-06-24)
+- The local-Ollama RAGAS judge (Phase 7) timed out on 2 of 4 metrics on a
+  single example — the local 3B model couldn't keep up even for a smoke
+  test. Migrated every LLM call site in the project — not just the judge —
+  from local Ollama to Groq's hosted free-tier API in one pass.
+- `src/utils/llm_client.py`: `OllamaClient` → `GroqClient`, same
+  `complete(prompt, system, temperature)` interface, so
+  `src/query/{query_analyzer,query_transformer,query_decomposer}.py` and
+  `src/generation/generator.py` only needed an import + instantiation swap
+  (`host=...` → `api_key=...`). `src/evaluation/ragas_evaluator.py` swapped
+  `ChatOllama` for `ChatGroq`.
+  `pip install groq langchain-groq` pulled `langchain-core>=1.0`, which
+  breaks `langchain`/`langchain-community`/`langchain-openai` (all pinned
+  `<1.0`, needed for `ragas` imports) — pinned `langchain-groq==0.2.5`
+  instead, which depends on the compatible `langchain-core<1.0` line.
+- `configs/base.yaml` `generation.provider` is now `groq`, model is
+  `llama-3.3-70b-versatile`, key comes from `${oc.env:GROQ_API_KEY}`
+  (`.env`, gitignored — never the literal key in `configs/base.yaml`,
+  which is git-tracked).
+- Embeddings (BGE-M3) and reranking (BGE-reranker) are unchanged — still
+  local sentence-transformers models, never touch an API.
+- Result: RAGAS judge timeouts disappeared (all 4 metrics return real
+  scores now), and `scripts/generate.py` end-to-end runtime dropped from
+  several minutes to ~1.5 min (almost entirely local model load time now,
+  not LLM latency).
+- **Caution for future sessions**: a real Groq key was once pasted directly
+  into `configs/base.yaml` (git-tracked) instead of `.env` — caught before
+  commit and moved to `.env`; recommended rotating it since it briefly
+  touched a chat transcript. Always put API keys in `.env` only; reference
+  via `${oc.env:VAR_NAME}` in config files.
 
 ## Planned: Phase 8 — Frontend + Deployment (after Phase 6+7 done, NOT now)
 - Next.js frontend, deployed (resume-facing, public link).
 - Backend API layer: FastAPI wrapping RetrievalPipeline + generation (`/query`, `/health`). Chosen over Next.js-routes-calling-Python.
 - Frontend v1 scope: chat-style query input + streamed answer w/ citations, retrieval debug panel (dense/sparse/hybrid/reranked per-stage view, like `scripts/retrieve.py`), eval dashboard (RAGAS + retrieval metrics).
-- Deployment: swap Ollama → Groq free-tier API for the deployed backend (Ollama needs persistent compute, doesn't fit free serverless hosts) — local dev keeps Ollama. This breaks "100% free local stack" for prod only; local stack unchanged.
+- Deployment: backend already runs on Groq (see LLM Provider Migration Notes) — no separate local/prod LLM split needed anymore, one fewer thing to configure for deployment.
 - Do not start this until Phases 6 (Generation) and 7 (Evaluation) are done.
 
 ## Experiment Log

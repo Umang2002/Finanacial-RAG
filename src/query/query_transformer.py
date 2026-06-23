@@ -20,7 +20,7 @@ from __future__ import annotations
 from omegaconf import DictConfig
 
 from src.query.models import TransformedQuery
-from src.utils.llm_client import OllamaClient
+from src.utils.llm_client import GroqClient
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -44,10 +44,12 @@ _MULTI_QUERY_USER_TEMPLATE = "Question: {query}\nRewrites:"
 class QueryTransformer:
     """Wraps the LLM calls behind HyDE document generation and multi-query paraphrasing."""
 
-    def __init__(self, cfg: DictConfig, llm: OllamaClient | None = None) -> None:
+    def __init__(self, cfg: DictConfig, llm: GroqClient | None = None) -> None:
         """Build the transformer; reuse injected `llm` in tests, else build from cfg.generation."""
         self.cfg = cfg
-        self.llm = llm or OllamaClient(model=cfg.generation.model, host=cfg.generation.ollama_host)
+        self.llm = llm or GroqClient(
+            model=cfg.generation.model, api_key=cfg.generation.groq_api_key
+        )
 
     def generate_hyde(self, query: str) -> str:
         """Generate one hypothetical filing passage that would answer `query`."""

@@ -1,5 +1,6 @@
 # Base pipeline configuration — override per experiment
-# All models are local/free. No API costs.
+# Embeddings/reranker are local/free. LLM calls (query transform, generation,
+# RAGAS judge) go through Groq's free-tier hosted API — see generation.provider.
 
 ingestion:
   sec_user_agent: ${oc.env:SEC_USER_AGENT}
@@ -47,9 +48,9 @@ query:
   num_multi_queries: 3
 
 generation:
-  provider: ollama                      # Local Ollama server, no API cost
-  model: llama3.2:3b                    # Options: llama3.2:3b, llama3.1, mistral, phi3 — must match `ollama list` tag exactly
-  ollama_host: ${oc.env:OLLAMA_HOST}
+  provider: groq                        # Hosted Groq API (free tier) — replaced local Ollama for speed
+  model: llama-3.3-70b-versatile        # Groq-hosted model id — see https://console.groq.com/docs/models
+  groq_api_key: ${oc.env:GROQ_API_KEY}
   temperature: 0.0
   max_tokens: 1024
   citation_style: inline                # Options: inline, footnote, list
