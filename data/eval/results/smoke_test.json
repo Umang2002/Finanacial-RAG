@@ -1,0 +1,32 @@
+{
+  "config_name": "smoke_test",
+  "num_examples": 1,
+  "retrieval_results": [
+    {
+      "financebench_id": "financebench_id_00552",
+      "hit_rate": 0.0,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "precision_at_k": 0.0,
+      "recall_at_k": 0.0
+    }
+  ],
+  "ragas_results": [
+    {
+      "financebench_id": "financebench_id_00552",
+      "faithfulness": null,
+      "answer_relevancy": 0.9995339717530295,
+      "context_precision": null,
+      "context_recall": 0.0
+    }
+  ],
+  "mean_hit_rate": 0.0,
+  "mean_mrr": 0.0,
+  "mean_ndcg": 0.0,
+  "mean_precision_at_k": 0.0,
+  "mean_recall_at_k": 0.0,
+  "mean_faithfulness": null,
+  "mean_answer_relevancy": 0.9995339717530295,
+  "mean_context_precision": null,
+  "mean_context_recall": 0.0
+}

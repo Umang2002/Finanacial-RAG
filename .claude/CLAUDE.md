@@ -79,7 +79,7 @@ python scripts/run_eval.py --config configs/base.yaml
 ```
 
 ## Current Phase
-Phase 6 — Generation (implemented, smoke-testing)
+Phase 7 — Evaluation (implemented, smoke-tested with n=1; see Phase 7 Notes)
 
 ## Phase 6 Notes
 - `Generator` wires `ContextAssembler` + `OllamaClient` + `output_parser`
@@ -94,6 +94,26 @@ Phase 6 — Generation (implemented, smoke-testing)
 - `scripts/generate.py` is the first true end-to-end CLI: intent
   classification -> HyDE/multi-query -> decomposition (multi-hop only) ->
   retrieval -> generation -> printed answer + citations table.
+
+## Phase 7 Notes
+- `RagasEvaluator` judges with a local `ChatOllama` (reuses `generation.model`)
+  + a BGE-M3 embeddings adapter (reuses `embeddings.dense_model`) — zero new
+  downloads, RAGAS scoring stays free/local like everything else.
+- `retrieval_metrics.judge_relevance()` flags a retrieved chunk relevant if
+  ≥50% of its tokens are contained in FinanceBench's `evidence_text` — there's
+  no chunk-level ground truth, only page-level evidence, so containment
+  (not Jaccard) is the only sane comparison.
+- FinanceBench has almost no overlap with this project's ticker universe:
+  1 MSFT + 3 AMZN questions total, 0 for AAPL/TSLA/GOOGL, out of 150
+  questions. MSFT's FY2023 10-K was ingested (Phases 1-3) just to unlock its
+  1 question; the AMZN ones are unreachable until Phase 1's
+  `SECEdgarLoader.list_filings()` paginates EDGAR's older-filings index.
+  See `docs/phases/phase7_evaluation.md` Open Items.
+- Smoke-tested end-to-end on that 1 MSFT question: ran clean (exit 0),
+  2 of 4 RAGAS metrics hit the local model's 180s judge timeout and
+  correctly degraded to `None` rather than crashing. Retrieval metrics
+  scored 0.0 — not yet root-caused (real miss vs. threshold), and n=1 isn't
+  enough to conclude anything either way.
 
 ## Planned: Phase 8 — Frontend + Deployment (after Phase 6+7 done, NOT now)
 - Next.js frontend, deployed (resume-facing, public link).
