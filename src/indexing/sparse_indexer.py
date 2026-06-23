@@ -43,6 +43,7 @@ class BM25SparseEncoder:
         """Start unfit — call fit() with the full corpus before encode_all()/encode_query()."""
         self._bm25: BM25Okapi | None = None
         self._vocab: dict[str, int] = {}
+        self._idf: dict[str, float] = {}
 
     def fit(self, texts: list[str]) -> None:
         """Tokenize the full corpus, fit BM25Okapi, and assign each unique term a stable int id.
@@ -60,6 +61,7 @@ class BM25SparseEncoder:
             for term in doc_tokens:
                 if term not in self._vocab:
                     self._vocab[term] = len(self._vocab)
+        self._idf = self._bm25.idf
         logger.info(f"BM25 fit: {len(texts)} docs, vocab size {len(self._vocab)}")
 
     def encode_all(self) -> list[models.SparseVector]:
@@ -101,16 +103,33 @@ class BM25SparseEncoder:
         length normalization), so the query vector only needs to select
         which terms matter and by how much they matter (IDF), matching the
         convention used by Qdrant's own bm25 fastembed model.
+
+        WHY self._idf not self._bm25.idf: at query time (Phase 5 retrieval)
+        there's no fitted BM25Okapi instance — load_vocab() populates
+        self._idf directly from the persisted file without needing the
+        full corpus in memory again.
         """
-        assert self._bm25 is not None, "call fit() before encode_query()"
-        bm25 = self._bm25
+        assert self._vocab, "call fit() or load_vocab() before encode_query()"
         term_freqs: dict[str, int] = {}
         for term in tokenize(query):
             if term in self._vocab:
                 term_freqs[term] = term_freqs.get(term, 0) + 1
         indices = [self._vocab[t] for t in term_freqs]
-        values = [float(bm25.idf.get(t, 0.0) * f) for t, f in term_freqs.items()]
+        values = [float(self._idf.get(t, 0.0) * f) for t, f in term_freqs.items()]
         return models.SparseVector(indices=indices, values=values)
+
+    def load_vocab(self, path: str | Path) -> None:
+        """Load a persisted vocab+idf (written by save_vocab) for query-time encoding only.
+
+        WHY this doesn't restore a full BM25Okapi: encode_query() only ever
+        reads idf + the vocab's term->id mapping, never doc_freqs/doc_len —
+        so query-time retrieval needs none of the per-document state that
+        fit() builds, just the term statistics from the indexed corpus.
+        """
+        data = json.loads(Path(path).read_text())
+        self._vocab = {k: int(v) for k, v in data["vocab"].items()}
+        self._idf = data["idf"]
+        logger.info(f"BM25 vocab+idf loaded from {path} ({len(self._vocab)} terms)")
 
     def save_vocab(self, path: str | Path) -> None:
         """Persist vocab + idf so retrieval (Phase 5) can encode queries with the same mapping.

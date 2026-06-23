@@ -79,7 +79,14 @@ python scripts/run_eval.py --config configs/base.yaml
 ```
 
 ## Current Phase
-Phase 5 — Retrieval (next)
+Phase 5 — Retrieval (implemented, smoke-testing)
+
+## Planned: Phase 8 — Frontend + Deployment (after Phase 6+7 done, NOT now)
+- Next.js frontend, deployed (resume-facing, public link).
+- Backend API layer: FastAPI wrapping RetrievalPipeline + generation (`/query`, `/health`). Chosen over Next.js-routes-calling-Python.
+- Frontend v1 scope: chat-style query input + streamed answer w/ citations, retrieval debug panel (dense/sparse/hybrid/reranked per-stage view, like `scripts/retrieve.py`), eval dashboard (RAGAS + retrieval metrics).
+- Deployment: swap Ollama → Groq free-tier API for the deployed backend (Ollama needs persistent compute, doesn't fit free serverless hosts) — local dev keeps Ollama. This breaks "100% free local stack" for prod only; local stack unchanged.
+- Do not start this until Phases 6 (Generation) and 7 (Evaluation) are done.
 
 ## Experiment Log
 | Experiment | Chunking | Retrieval | RAGAS Faithfulness | Hit Rate@5 |
