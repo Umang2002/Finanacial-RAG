@@ -3,6 +3,26 @@
 ## Summary
 Takes Phase 4's query variants (raw query + optional HyDE doc + multi-query paraphrases + decomposed sub-questions) and turns them into a final ranked candidate set: dense ANN search + sparse BM25 search per variant, RRF fusion across all of them, then BGE cross-encoder reranking against the original raw query. `RetrievalPipeline.retrieve()` is the single entry point Phase 6 calls. No state left on disk — reads the Phase 3 Qdrant collection, returns an in-memory list.
 
+## Worked Example
+Continuing from Phase 4: query *"What was Apple's net sales in fiscal 2023?"*, with `TransformedQuery.hyde_doc` + 3 `multi_queries` from that phase.
+
+1. `build_query_variants()` collects 5 distinct strings to search with: the raw query, the HyDE passage, and the 3 multi-query paraphrases (deduped — none happened to collide here).
+2. `HybridRetriever.retrieve(variants)` runs dense ANN search **and** sparse BM25 search against the `financial_rag` collection (1,177 points: 737 AAPL + 440 MSFT chunks) for *each* of the 5 variants — 10 searches total — then RRF-fuses all 10 ranked lists into one.
+3. `Reranker.rerank(raw_query, fused)` re-scores the fused candidates with the BGE cross-encoder against the *original* raw query (not the HyDE doc or paraphrases), truncates to `top_k_rerank=5`. Real output for this query:
+
+   | Rank | Score | Sources | Item | Chunk preview |
+   |---|---|---|---|---|
+   | [1] | 0.9964 | dense+sparse | Item 8 | "...The U.S. and China were the only countries that accounted for more than 10% of the Company's net sales in 2023..." |
+   | [2] | 0.9833 | dense+sparse | Item 8 | "...Net sales disaggregated by significant products and services for 2023, 2022 and 2021..." |
+   | [3] | 0.9813 | dense only | Table 19 | "iPhone (1) (2023): $. iPhone (1) (): 200,583. Mac (1) (2023): 29,357..." (NL-sentence table chunk) |
+   | [4] | 0.9796 | dense+sparse | Item 7 | "...(2) Services net sales include amortization... iPhone net sales..." |
+   | [5] | 0.9779 | dense only | Item 7 | "...Products and Services Performance The following table shows net sales by category..." |
+
+   Notice the exact chunk from Phases 2-3's worked example (`33c5dee5...`, the "Fiscal Year Highlights" paragraph) **did not** make this top-5 — a different Item 7/Item 8/Table 19 set of chunks won instead, all of which also state the $383,285M figure (just via different sentences/tables). This matters later: Phase 7's `judge_relevance()` heuristic checks for textual overlap against one *specific* gold passage, so if the gold evidence happens to be the "Fiscal Year Highlights" sentence specifically, these 5 retrieved-but-differently-worded chunks would score as "not relevant" by that heuristic even though they answer the question correctly — see Phase 7's Worked Example for this exact scenario playing out.
+4. Also notice `[1]` and `[2]` were found by both dense *and* sparse search (`sources=["dense", "sparse"]`) — both signals agreed, which is reflected in RRF giving them the top fused ranks before reranking even runs. `[3]` and `[5]` were dense-only: the cross-encoder still ranked them highly because they're genuinely on-topic, even though sparse/BM25 missed them (likely because the table-derived NL-sentence chunks use different surface wording than the query).
+
+This 5-chunk list is exactly what Phase 6 receives next.
+
 ## Files Changed / Added
 - `src/retrieval/models.py` — new — `RetrievedChunk` (chunk + score + sources), the pydantic boundary into Phase 6
 - `src/retrieval/dense_retriever.py` — modified (stub → full) — `DenseRetriever.search()`: embeds query via `BGEEmbedder`, ANN search against the `dense` named vector

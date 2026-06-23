@@ -3,6 +3,30 @@
 ## Summary
 Pulls 10-K/10-Q filings for configured tickers/years off SEC EDGAR (free public API), saves raw `.htm` + `metadata.json` to `data/raw/`, then parses raw HTML into clean structured JSON (full text, Item-numbered sections, raw tables) saved to `data/processed/`. This is the entry point of the pipeline — everything downstream (chunking, indexing, retrieval) reads from `data/processed/*/parsed.json`.
 
+## Worked Example
+Concrete walkthrough using AAPL's real FY2023 10-K — the same filing/passage is used across every phase doc so you can follow one piece of text end to end. Pick a query too, used from Phase 4 onward: **"What was Apple's net sales in fiscal 2023?"**
+
+1. `python scripts/download_filings.py --ticker AAPL --years 2023 --forms 10-K` resolves ticker `AAPL` → CIK `0000320193`, finds AAPL's FY2023 10-K in EDGAR's `filings.recent`, downloads it to `data/raw/AAPL/10-K_2023/primary.htm` (~10MB of inline-XBRL HTML) + `metadata.json`.
+2. Inside that raw HTML, the passage we'll follow looks like this (real fragment, truncated):
+   ```html
+   <div style="margin-top:18pt"><span ...>Fiscal Year Highlights</span></div>
+   <div style="margin-top:6pt"><span ...>The Company&#8217;s total net sales were
+   $383.3 billion and net income was $97.0 billion during 2023.</span></div>
+   <div style="margin-top:12pt"><span ...>The Company&#8217;s total net sales
+   decreased 3% or $11.0 billion during 2023 compared to 2022...</span></div>
+   ```
+   Note there's no `<h1>`/`<p>` — every line is a styled `<span>` inside a `<div>`. This is exactly why `_split_sections()` can't use heading tags and has to regex for `Item N.` boundaries instead.
+3. `python scripts/parse_filings.py --ticker AAPL --years 2023` runs `HTMLFilingParser.parse()`: `soup.get_text()` flattens all those `<span>`s into plain text, collapsing whitespace. The same passage now reads as one clean run of text inside `ParsedFiling.full_text`, sitting inside the `Item 7` section (Management's Discussion and Analysis):
+   ```
+   ...Fiscal Year Highlights The Company's total net sales were $383.3 billion
+   and net income was $97.0 billion during 2023. The Company's total net sales
+   decreased 3% or $11.0 billion during 2023 compared to 2022...
+   ```
+4. `extract_metadata()` pulls `dei:EntityRegistrantName` → `"Apple Inc."`, `dei:EntityCentralIndexKey` → `"0000320193"`, `dei:DocumentFiscalYearFocus` → `2023` from XBRL tags elsewhere in the same HTML — these get stamped onto every section/chunk derived from this filing later.
+5. Written to `data/processed/AAPL/10-K_2023/parsed.json` as one `ParsedSection` (item `"Item 7"`) inside the larger `ParsedFiling.sections` list, alongside `raw_tables` (the filing's tables, kept as raw HTML — Apple's net sales also appears in tabular form here, e.g. a segment/category breakdown table, untouched until Phase 2's table serializer runs).
+
+This `parsed.json` is what Phase 2 (Processing) picks up next — see its Worked Example for what happens to this exact passage during chunking.
+
 ## Files Changed / Added
 - `src/ingestion/models.py` — new — pydantic models: `FilingRef`, `DownloadedFiling`, `ParsedSection`, `ParsedFiling`
 - `src/ingestion/sec_loader.py` — modified (stub → full) — `SECEdgarLoader`: ticker→CIK resolution, filing listing, rate-limited+retried download

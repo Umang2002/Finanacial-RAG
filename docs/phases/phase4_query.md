@@ -3,6 +3,41 @@
 ## Summary
 Turns one raw user question into the inputs Phase 5 (Retrieval) actually searches with: an intent label (used to decide whether decomposition is worth running), a HyDE hypothetical passage + N paraphrases (widen dense/sparse recall), and — for multi-hop questions — a set of independently-answerable sub-questions. No vector store or LLM-generation work happens here; this phase only produces strings that get embedded/searched/decomposed downstream. State left behind: none on disk — pure library code called per-query at request time.
 
+## Worked Example
+Query: **"What was Apple's net sales in fiscal 2023?"** (Note: this phase originally ran on local Ollama/`llama3.2:3b`; everything below is the *current* real output after the later Ollama→Groq migration — see CLAUDE.md "LLM Provider Migration Notes" — since `GroqClient` is a drop-in replacement with the same `complete()` interface, nothing about this phase's logic changed, only which LLM answers the prompts.)
+
+1. `QueryAnalyzer(cfg).analyze(query)` sends the classification system prompt + this query to the LLM. Real output:
+   ```python
+   AnalyzedQuery(
+       raw_query="What was Apple's net sales in fiscal 2023?",
+       intent="factual_lookup",
+       is_multi_hop=False,
+   )
+   ```
+   Correct call: this is a single-fact lookup ("what is X"), not a comparison/calculation/multi-hop question — `is_multi_hop=False` means `QueryDecomposer` won't be invoked at all downstream (see step 3).
+2. `QueryTransformer(cfg).transform(query)` makes two more LLM calls. Real output:
+   ```python
+   TransformedQuery(
+       raw_query="What was Apple's net sales in fiscal 2023?",
+       hyde_doc=(
+           "Our net sales for fiscal 2023 were $383.0 billion, representing a 7.8% "
+           "increase from $355.3 billion in fiscal 2022, driven primarily by growth "
+           "in our iPhone and services segments, which contributed $191.0 billion "
+           "and $68.4 billion to net sales, respectively, for the fiscal year ended "
+           "September 30, 2023."
+       ),
+       multi_queries=[
+           "What were Apple's total revenues for the fiscal year 2023?",
+           "How much did Apple generate in terms of overall revenue during fiscal 2023?",
+           "What was the total amount of money Apple earned from sales in its fiscal year 2023?",
+       ],
+   )
+   ```
+   Worth noticing: the HyDE passage is *plausible but wrong* — it invents "$383.0 billion" and a "7.8% increase" that don't match the real filing (actual: $383,285 million, a 3% *decrease*). That's fine and expected — per `query_transformer.py`'s docstring, this passage is "only used to find real matching text, never shown to a user." Its job is to land near the *real* answer in embedding space by using similar financial vocabulary/structure, not to be factually correct itself.
+3. `QueryDecomposer(cfg).decompose(query)` is never even called here — Phase 5's orchestration only invokes it when `analyzed.is_multi_hop` is `True` (see `scripts/generate.py`), and step 1 returned `False`. Had this been "Compare Apple's and Microsoft's net sales growth in FY2023" instead, `is_multi_hop` would (ideally) come back `True` and decomposition would split it into independently-retrievable sub-questions like `["What was Apple's net sales growth in FY2023?", "What was Microsoft's net sales growth in FY2023?"]`.
+
+Phase 5 takes the raw query + this `TransformedQuery` (5 distinct strings total: 1 raw + 1 HyDE + 3 multi-query) and searches with all of them — see its Worked Example.
+
 ## Files Changed / Added
 - `src/utils/llm_client.py` — new — `OllamaClient`: thin wrapper over `ollama.Client.chat`, single prompt in / string out, shared by this phase and (later) Phase 6 generation
 - `src/query/models.py` — new — `QueryIntent`, `AnalyzedQuery`, `TransformedQuery`, `DecomposedQuery` pydantic models

@@ -3,6 +3,33 @@
 ## Summary
 Turns each `ParsedFiling` (Phase 1 output) into a list of `Chunk` objects ready for embedding. Cleans residual Unicode/boilerplate noise, serializes raw HTML tables into markdown + natural-language sentences, splits section/table text via a configurable strategy (fixed/recursive/semantic/sentence_window/parent_child), and stamps filing+section identity onto every chunk. Output lands at `data/processed/{ticker}/{form}_{year}/chunks.json` — this is what Phase 3 (Indexing) embeds into Qdrant.
 
+## Worked Example
+Continuing the AAPL FY2023 10-K "Fiscal Year Highlights" passage from Phase 1's `parsed.json`. Recall the cleaned section text from Phase 1:
+```
+...An additional week is included in the first fiscal quarter every five or six
+years to realign the Company's fiscal quarters with calendar quarters, which
+occurred in the first quarter of 2023. The Company's fiscal year 2023 spanned
+53 weeks, whereas fiscal years 2022 and 2021 spanned 52 weeks each. Fiscal Year
+Highlights The Company's total net sales were $383.3 billion and net income
+was $97.0 billion during 2023. The Company's total net sales decreased 3% or
+$11.0 billion during 2023 compared to 2022...
+```
+1. `TextCleaner.clean()` runs first — for this passage it's a no-op (no stray Unicode quotes/dashes or ToC cross-references here), but it does fire elsewhere in the same `Item 7` section, e.g. normalizing the curly apostrophe in `Company's` (`’` → `'`).
+2. `chunk_text(cleaned, cfg)` dispatches to `chunk_recursive()` (the configured default strategy) with `chunk_size=512`, `chunk_overlap=64`. `RecursiveCharacterTextSplitter` walks the configured separators (`\n\n`, `\n`, `. `, ` `) and cuts this section into multiple ~512-char windows with 64-char overlap. Our exact passage lands inside real chunk `chunk_index=2` of the `Item 7` section — here's the **actual chunk text** produced (`chunk_id=33c5dee5-4d03-4b10-aa04-1f28a2b8ecea`, 85 tokens by the word-count proxy):
+   ```
+   . An additional week is included in the first fiscal quarter every five or six
+   years to realign the Company's fiscal quarters with calendar quarters, which
+   occurred in the first quarter of 2023. The Company's fiscal year 2023 spanned
+   53 weeks, whereas fiscal years 2022 and 2021 spanned 52 weeks each. Fiscal Year
+   Highlights The Company's total net sales were $383.3 billion and net income
+   was $97.0 billion during 2023. The Company's total net sales decreased 3% or
+   $11.0 billion during 2023 compared to 2022
+   ```
+   Note the leading `. ` — that's the tail of the *previous* chunk's last sentence, an artifact of the 64-char overlap window, not a cleaning bug.
+3. The same dollar figure also exists in tabular form elsewhere in the filing (e.g. a "Total net sales | $383,285" row in the segment-breakdown table) — that table goes through `TableSerializer` instead, producing a *separate* chunk like `"Total net sales (2023): $. Total net sales (): 383,285..."` (NL-sentence form) plus a markdown-table chunk. Both the prose chunk above and these table chunks end up indexed in Phase 3 — this is why Phase 5's retrieval later returns multiple chunks (prose Item 7, Item 8 financial statements, and Table 19) all answering the same net-sales question.
+4. `enrich()` stamps `ChunkMetadata` onto the chunk: `ticker="AAPL"`, `cik="0000320193"`, `form="10-K"`, `fiscal_year=2023`, `company_name="Apple Inc."`, `item_label="Item 7"`, `section_title="Management's Discussion and Analysis of Financial Condition and..."`.
+5. Written to `data/processed/AAPL/10-K_2023/chunks.json` as one of 737 total chunks for this filing — this exact chunk (and its table-chunk siblings) is what Phase 3 embeds next.
+
 ## Files Changed / Added
 - `src/processing/models.py` — new — `Chunk`, `ChunkMetadata`, `ChunkStrategy` literal
 - `src/processing/cleaner.py` — modified (stub → full) — `TextCleaner`: Unicode normalization, stray "Table of Contents" removal, whitespace collapse

@@ -5,6 +5,27 @@ Scores the Phase 1-6 pipeline against FinanceBench (PatronusAI/financebench, fre
 
 **2026-06-24 update**: every LLM call in the project (Phase 4 query transform/decomposition, Phase 6 generation, and this phase's RAGAS judge) was migrated from local Ollama to Groq's hosted free-tier API — see "Ollama → Groq Migration" below. Embeddings (BGE-M3) and reranking (BGE-reranker) stay local; only LLM text-generation calls moved off-device.
 
+## Worked Example
+The real FinanceBench eval set only has 1 question (MSFT), so to show this phase's mechanics clearly, here's an **illustrative, ad-hoc run** — not part of `data/eval/financebench.json`, never logged to the real experiment log — reusing the AAPL net-sales query from Phases 4-6 with a hand-written "gold" answer + evidence passage, run directly against `RetrievalPipeline`/`Generator`/`RagasEvaluator`/`retrieval_metrics.py`:
+
+- Query: *"What was Apple's net sales in fiscal 2023?"*
+- Hand-written `ground_truth_answer`: *"Apple reported total net sales of $383,285 million ($383.3 billion) for fiscal year 2023, a 3% decrease from $394,328 million in fiscal 2022."*
+- Hand-picked `evidence_texts`: `["The Company's total net sales were $383.3 billion and net income was $97.0 billion during 2023. The Company's total net sales decreased 3% or $11.0 billion during 2023 compared to 2022"]` — this is the exact "Fiscal Year Highlights" sentence from Phase 1-2's worked-example chunk (`33c5dee5...`).
+
+1. The real Phase 5 retrieval ran (same 5 chunks as Phase 5's worked example: Item 8, Item 8, Table 19, Item 7, Item 7 — notably **not** the `33c5dee5...` chunk the evidence text came from), and the real Phase 6 generation ran, producing the same answer as before: *"Apple's net sales in fiscal 2023 were $383,285 million [1], [2], [3], [5]."*
+2. `judge_relevance(chunk_texts, evidence_texts)` checks each of the 5 retrieved chunks for ≥50% token containment against that one evidence sentence. Real result: **`[False, False, False, False, False]`** — every single chunk scored not-relevant, even though the answer is factually correct. `hit_rate_at_k`/`mrr`/`ndcg_at_k`/`precision_at_k`/`recall_at_k` all come back **0.0** as a direct consequence.
+3. `RagasEvaluator.evaluate()` scored the *same* answer + retrieved contexts against the same ground truth using an LLM judge instead of token overlap. Real result:
+   ```python
+   RagasEvalResult(
+       faithfulness=1.0,        # every claim in the answer is backed by the retrieved context
+       answer_relevancy=0.999,  # answer is squarely on-topic for the question
+       context_precision=0.867, # most retrieved chunks are judged relevant
+       context_recall=1.0,      # the retrieved chunks fully cover the ground-truth answer
+   )
+   ```
+
+**Why this is a genuinely useful diagnostic, not just a curiosity**: the LLM judge says retrieval was excellent (`context_recall=1.0`) on the *exact same chunks* that the token-containment heuristic scored as 100% irrelevant. The difference is what each one is comparing against: `judge_relevance()` only checks overlap against one specific gold sentence, while RAGAS's judge checks whether the retrieved chunks support the answer *in general*. Here, the 5 retrieved chunks state the same $383,285M figure via different wording (Item 8's financial statements, a category-breakdown table) than the one "Fiscal Year Highlights" sentence used as gold evidence — so they're correct, but textually disjoint from that specific passage. This is the leading hypothesis (not yet confirmed against the real MSFT example) for why the real Smoke Test Results below also show 0.0 retrieval metrics despite a real, working pipeline — see the strengthened Open Items entry below.
+
 ## Files Changed / Added
 - `src/evaluation/models.py` — new — `EvalExample`, `RetrievalEvalResult`, `RagasEvalResult`, `EvalReport` pydantic models
 - `src/evaluation/retrieval_metrics.py` — modified (stub → full) — `judge_relevance()` (token-containment heuristic vs FinanceBench evidence text) + `hit_rate_at_k`/`mrr`/`ndcg_at_k`/`precision_at_k`/`recall_at_k`
@@ -94,6 +115,6 @@ Retrieval metrics are unchanged (0.0, still unresolved — same open question as
 - **FinanceBench corpus overlap is fundamentally thin and not fixable from Phase 7 alone**: only 1 MSFT + 3 AMZN questions exist for this project's 5-ticker universe across all of FinanceBench's 150 questions, and zero for AAPL/TSLA/GOOGL. The 3 AMZN questions (FY2017, FY2019) are unreachable because `SECEdgarLoader.list_filings()` (Phase 1) only reads EDGAR's `filings.recent` array, which covers roughly the last ~1000 filings per company — too recent to include Amazon's 2018/2020 filing dates. Extending it to paginate `filings.files[]` for older filings is a Phase 1 change, not Phase 7's to make.
 - ~~RAGAS judge timeouts at the default 180s `RunConfig`~~ — resolved by the Groq migration above; no longer an open item.
 - **`evaluation.batch_size` in `configs/base.yaml` is declared but unused**: `run_eval.py` evaluates one example at a time, sequentially. Worth revisiting once example counts are large enough that batching the RAGAS judge calls matters for runtime.
-- **The 0.0 retrieval-metric result is unexplained across both runs** (see Smoke Test Results / migration table above) — needs a real multi-example run (once more filings are ingested) before drawing any conclusion about retrieval quality.
+- **The 0.0 retrieval-metric result has a likely explanation now, via the Worked Example above, but is still not confirmed against the real MSFT example**: an illustrative AAPL run showed the same all-`False` `judge_relevance()` pattern on chunks RAGAS's LLM judge scored as `context_recall=1.0` (fully correct) — strong evidence that `judge_relevance()`'s 50%-token-containment check against one specific gold sentence is simply the wrong relevance test when a different, equally-correct chunk gets retrieved instead. If true for the real MSFT example too, the fix would be either lowering the containment threshold, checking containment against `evidence_text_full_page` instead of the narrow `evidence_text`, or using an LLM-judged relevance check instead of token overlap. Not fixed here — needs the real MSFT example's actual retrieved chunks compared against its evidence text to confirm before changing the heuristic.
 - **The Groq-run `answer_relevancy` collapsing to 0.0 (from ~1.0 on Ollama) is unexplained** — `EvalReport` doesn't persist generated answer text, so this couldn't be root-caused without a re-run; worth adding the answer text to `RagasEvalResult` or the report for future debugging.
 - **CLAUDE.md's Experiment Log table is intentionally left with placeholder dashes**, not the n=1 smoke numbers — one example is not a baseline worth committing to that table; populate it once a real-sized eval run exists.
