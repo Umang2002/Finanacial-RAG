@@ -79,7 +79,21 @@ python scripts/run_eval.py --config configs/base.yaml
 ```
 
 ## Current Phase
-Phase 5 — Retrieval (implemented, smoke-testing)
+Phase 6 — Generation (implemented, smoke-testing)
+
+## Phase 6 Notes
+- `Generator` wires `ContextAssembler` + `OllamaClient` + `output_parser`
+  into one `generate(query, chunks)` call returning a `GeneratedAnswer`.
+- `ContextAssembler` assigns citation numbers in relevance order (1 =
+  best) but physically places chunk text in sandwich order (best chunks
+  at both ends, weakest in the middle) — mitigates lost-in-middle while
+  keeping citation numbers meaningful to the model.
+- Citation style is config-gated (`generation.citation_style`) but only
+  `inline` is implemented; `Generator.__init__` raises on any other value
+  rather than silently producing unparsable output.
+- `scripts/generate.py` is the first true end-to-end CLI: intent
+  classification -> HyDE/multi-query -> decomposition (multi-hop only) ->
+  retrieval -> generation -> printed answer + citations table.
 
 ## Planned: Phase 8 — Frontend + Deployment (after Phase 6+7 done, NOT now)
 - Next.js frontend, deployed (resume-facing, public link).
