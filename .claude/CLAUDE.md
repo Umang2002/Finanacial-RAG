@@ -51,7 +51,7 @@ Built for learning (understand every component) and resume (production-grade pat
 ## Prerequisites (one-time setup)
 ```bash
 # 1. Install Ollama → https://ollama.com/download
-ollama pull llama3.2        # ~2GB download
+ollama pull llama3.2:3b     # ~2GB download — tag must match exactly (no bare `llama3.2` alias)
 # 2. BGE-M3 downloads automatically on first use (~2.3GB)
 # Qdrant runs embedded (no Docker / no server) — see "Vector DB" row above.
 # docker-compose.yml is kept for an optional server-mode swap later
@@ -79,7 +79,7 @@ python scripts/run_eval.py --config configs/base.yaml
 ```
 
 ## Current Phase
-Phase 4 — Query Processing (next)
+Phase 5 — Retrieval (next)
 
 ## Experiment Log
 | Experiment | Chunking | Retrieval | RAGAS Faithfulness | Hit Rate@5 |
