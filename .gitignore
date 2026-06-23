@@ -17,6 +17,7 @@ build/
 # Data (large files — not tracked)
 data/raw/
 data/processed/
+data/index/
 *.pdf
 *.html
 

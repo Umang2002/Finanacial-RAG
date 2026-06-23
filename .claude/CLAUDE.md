@@ -30,7 +30,7 @@ Built for learning (understand every component) and resume (production-grade pat
 | Embeddings | BGE-M3 (sentence-transformers) | Free, local |
 | LLM | Ollama + llama3.2 | Free, local |
 | Reranker | BGE-reranker-v2-m3 | Free, local |
-| Vector DB | Qdrant (Docker) | Free, local |
+| Vector DB | Qdrant (embedded local-mode, no Docker) | Free, local |
 | Ingestion | SEC EDGAR API | Free, public |
 | Observability | rich console logging | Free |
 
@@ -50,17 +50,16 @@ Built for learning (understand every component) and resume (production-grade pat
 
 ## Prerequisites (one-time setup)
 ```bash
-# 1. Install Docker Desktop → https://www.docker.com/products/docker-desktop/
-# 2. Install Ollama → https://ollama.com/download
+# 1. Install Ollama → https://ollama.com/download
 ollama pull llama3.2        # ~2GB download
-# 3. BGE-M3 downloads automatically on first use (~2.3GB)
+# 2. BGE-M3 downloads automatically on first use (~2.3GB)
+# Qdrant runs embedded (no Docker / no server) — see "Vector DB" row above.
+# docker-compose.yml is kept for an optional server-mode swap later
+# (QdrantClient(path=...) -> QdrantClient(url="localhost")) if Docker becomes available.
 ```
 
 ## Running the Project
 ```bash
-# Start Qdrant
-docker compose up -d
-
 # Install deps
 /opt/homebrew/bin/python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
@@ -68,17 +67,36 @@ pip install -r requirements.txt -r requirements-dev.txt
 # Download filings
 python scripts/download_filings.py --ticker AAPL --years 2022 2023
 
-# Build index (runs full ingestion → processing → indexing)
-python scripts/build_index.py --config configs/base.yaml
+# Parse + chunk
+python scripts/parse_filings.py --ticker AAPL --years 2023
+python scripts/process_filings.py --ticker AAPL --years 2023
+
+# Build hybrid index (dense BGE-M3 + sparse BM25, embedded Qdrant)
+python scripts/build_index.py --ticker AAPL --years 2023
 
 # Run evaluation
 python scripts/run_eval.py --config configs/base.yaml
 ```
 
 ## Current Phase
-Phase 1 — Data Ingestion (in progress)
+Phase 4 — Query Processing (next)
 
 ## Experiment Log
 | Experiment | Chunking | Retrieval | RAGAS Faithfulness | Hit Rate@5 |
 |---|---|---|---|---|
 | baseline | recursive-512 | dense-only | — | — |
+
+## Phase 3 Notes
+- Qdrant runs in embedded local mode: `QdrantClient(path=cfg.indexing.qdrant_path)`,
+  storage at `data/index/qdrant_local/` — no Docker installed on this machine.
+- One collection (`financial_rag`) holds both a named dense vector (`dense`,
+  1024d, cosine, HNSW) and a named sparse vector (`sparse`, BM25) per point —
+  Qdrant's native hybrid support, no second vector DB.
+- `build_index.py` recreates the collection fresh each run (idempotent,
+  not incremental) — corpus is still small and chunking strategy changes
+  during ablation experiments, so a stale mix of old/new chunks would
+  corrupt retrieval comparisons.
+- BM25 vocab + idf persisted to `data/index/bm25_vocab.json` so Phase 5
+  query-time sparse encoding stays consistent with what was indexed.
+- Verified: 737/737 AAPL 10-K 2023 chunks indexed, both vector types
+  queryable, dense search returns relevant hits.

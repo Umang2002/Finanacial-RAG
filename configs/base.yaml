@@ -30,6 +30,8 @@ indexing:
   distance_metric: cosine
   hnsw_m: 16
   hnsw_ef_construct: 200
+  qdrant_path: data/index/qdrant_local   # embedded Qdrant (no Docker) — local-mode storage dir
+  bm25_vocab_path: data/index/bm25_vocab.json  # persisted BM25 vocab+idf, reused by query-time encoding
 
 retrieval:
   top_k_dense: 20
