@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { SearchCheck, Sparkles } from "lucide-react";
+import { Info, Loader2, SearchCheck, Sparkles } from "lucide-react";
 
 type Citation = {
   citation_id: number;
@@ -59,6 +59,17 @@ type QueryResponse = {
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const STICKER_VARIANTS = ["amber", "violet", "emerald", "rose"] as const;
+
+// LEARN: the API is one synchronous request (see CLAUDE.md Phase 8 notes) —
+// it doesn't stream real per-stage progress, so this just cycles through the
+// pipeline's known steps on a timer to keep the wait from feeling frozen.
+const LOADING_STAGES = [
+  "Classifying intent…",
+  "Expanding the query (HyDE / multi-query)…",
+  "Searching dense + sparse indexes…",
+  "Reranking candidates…",
+  "Generating a cited answer…",
+];
 
 const STAGES: { key: keyof DebugStages; label: string }[] = [
   { key: "dense", label: "Dense" },
@@ -105,6 +116,23 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<QueryResponse | null>(null);
+  const [stageIndex, setStageIndex] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!loading) return;
+    setStageIndex(0);
+    setElapsed(0);
+    const stageTimer = setInterval(
+      () => setStageIndex((i) => Math.min(i + 1, LOADING_STAGES.length - 1)),
+      4000
+    );
+    const clock = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => {
+      clearInterval(stageTimer);
+      clearInterval(clock);
+    };
+  }, [loading]);
 
   async function handleSubmit() {
     if (!query.trim() || loading) return;
@@ -146,6 +174,20 @@ export default function Home() {
           </p>
         </div>
 
+        <Card className="bg-secondary/40">
+          <CardContent className="flex gap-2.5 text-sm text-muted-foreground">
+            <Info className="size-4 shrink-0 translate-y-0.5" />
+            <p>
+              Every answer is grounded in real SEC filings (2021–2024): the query is expanded
+              (HyDE + multi-query), matched with dense + BM25 search, reranked with a
+              cross-encoder, then answered with inline{" "}
+              <span className="font-semibold text-foreground">[citations]</span> back to the
+              exact filing section. Flip on <span className="font-semibold">Retrieval debug</span>{" "}
+              below to see what each stage actually retrieved.
+            </p>
+          </CardContent>
+        </Card>
+
         <div className="flex flex-col gap-3">
           <Textarea
             placeholder="e.g. What was Apple's FY2023 net sales?"
@@ -166,6 +208,7 @@ export default function Home() {
               Retrieval debug
             </label>
             <Button onClick={handleSubmit} disabled={loading || !query.trim()}>
+              {loading && <Loader2 className="size-4 animate-spin" />}
               {loading ? "Thinking…" : "Ask"}
             </Button>
           </div>
@@ -179,10 +222,21 @@ export default function Home() {
 
         {loading && (
           <Card>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Loader2 className="size-4 animate-spin" />
+                {LOADING_STAGES[stageIndex]}
+                <span className="ml-auto font-mono text-xs text-muted-foreground">
+                  {elapsed}s
+                </span>
+              </div>
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-1/2" />
+              <p className="text-xs text-muted-foreground">
+                Embedding + reranking run locally on this machine — first queries and
+                queries with debug on can take well over a minute.
+              </p>
             </CardContent>
           </Card>
         )}
