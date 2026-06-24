@@ -82,7 +82,7 @@ python scripts/run_eval.py --config configs/base.yaml
 ```
 
 ## Current Phase
-Phase 7 — Evaluation (implemented, smoke-tested with n=1; see Phase 7 Notes)
+Phase 8 — Frontend + Deployment (chat + citations v1 built and verified end-to-end; see Phase 8 Notes)
 
 ## Phase 6 Notes
 - `Generator` wires `ContextAssembler` + `GroqClient` (was `OllamaClient`
@@ -152,12 +152,42 @@ Phase 7 — Evaluation (implemented, smoke-tested with n=1; see Phase 7 Notes)
   touched a chat transcript. Always put API keys in `.env` only; reference
   via `${oc.env:VAR_NAME}` in config files.
 
-## Planned: Phase 8 — Frontend + Deployment (after Phase 6+7 done, NOT now)
-- Next.js frontend, deployed (resume-facing, public link).
+## Phase 8 — Frontend + Deployment (in progress)
+- Next.js frontend, deployed (resume-facing, public link) — deployment still pending.
 - Backend API layer: FastAPI wrapping RetrievalPipeline + generation (`/query`, `/health`). Chosen over Next.js-routes-calling-Python.
 - Frontend v1 scope: chat-style query input + streamed answer w/ citations, retrieval debug panel (dense/sparse/hybrid/reranked per-stage view, like `scripts/retrieve.py`), eval dashboard (RAGAS + retrieval metrics).
 - Deployment: backend already runs on Groq (see LLM Provider Migration Notes) — no separate local/prod LLM split needed anymore, one fewer thing to configure for deployment.
-- Do not start this until Phases 6 (Generation) and 7 (Evaluation) are done.
+
+### Phase 8 Notes
+- Cut v1 scope to chat + citations only (first slice) — debug panel and
+  eval dashboard deferred to a later pass, not built yet.
+- `src/api/main.py`: FastAPI app, `lifespan` builds every Phase 4-6
+  component (`QueryAnalyzer`, `QueryTransformer`, `QueryDecomposer`,
+  `RetrievalPipeline`, `Generator`) once at startup and stashes them on
+  `app.state` — model loads (BGE-M3 + BGE-reranker) dominate
+  `scripts/generate.py`'s ~1.5min runtime (see Phase 6/7 notes), so paying
+  that cost per-request would make every query slow. `POST /query` runs
+  the same intent -> transform -> decompose -> retrieve -> generate
+  sequence `scripts/generate.py` uses.
+- `src/api/models.py` defines `QueryRequest`/`QueryResponse` as a
+  deliberately separate contract from `src/generation/models.py`'s
+  `GeneratedAnswer`/`Citation` — an internal Phase 6 rename shouldn't
+  silently break the frontend.
+  CORS is locked to `http://localhost:3000` (the Next.js dev origin).
+- `frontend/`: Next.js 16 (App Router, TS, Tailwind v4) + shadcn/ui
+  (button, textarea, card, badge, skeleton). Single client page
+  (`src/app/page.tsx`) — textarea, submit on Enter, fetches
+  `NEXT_PUBLIC_API_URL` (`.env.local`, defaults to
+  `http://localhost:8000`) `/query`, renders answer + confidence +
+  citation badges, loading skeleton while waiting.
+- Verified end-to-end with Playwright (headless Chromium, installed
+  ad hoc — not a repo dependency): asked "What was Apple's FY2023 net
+  sales?" against the real Qdrant index, got "$383,285 million [1], [3]"
+  with confidence 1.00 and two AAPL 10-K FY2023 Item 8 citation badges,
+  zero browser console errors. Matches AAPL's actual reported FY2023 net
+  sales.
+- Run it: `uvicorn src.api.main:app --port 8000` (backend) +
+  `cd frontend && npm run dev` (frontend, port 3000).
 
 ## Experiment Log
 | Experiment | Chunking | Retrieval | RAGAS Faithfulness | Hit Rate@5 |
