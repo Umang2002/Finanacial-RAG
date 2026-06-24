@@ -13,9 +13,13 @@ from pydantic import BaseModel
 
 
 class QueryRequest(BaseModel):
-    """Body of POST /query — just the raw question."""
+    """Body of POST /query — the question, plus an opt-in flag for retrieval debug stages."""
 
     query: str
+    # LEARN: debug stages cost 3 extra retrieval calls (dense/sparse/fused
+    # run again outside the pipeline to capture each stage) — default False
+    # so the common case stays as fast as the original /query.
+    debug: bool = False
 
 
 class CitationOut(BaseModel):
@@ -28,6 +32,26 @@ class CitationOut(BaseModel):
     item_label: str
 
 
+class DebugHit(BaseModel):
+    """One chunk's result at a single retrieval stage — score + enough identity to render a row."""
+
+    score: float
+    ticker: str
+    form: str
+    fiscal_year: int
+    item_label: str
+    text_preview: str
+
+
+class DebugStages(BaseModel):
+    """Dense/sparse/hybrid/reranked top hits for one query — mirrors scripts/retrieve.py."""
+
+    dense: list[DebugHit]
+    sparse: list[DebugHit]
+    hybrid: list[DebugHit]
+    reranked: list[DebugHit]
+
+
 class QueryResponse(BaseModel):
     """Body of the POST /query response — answer + citations the frontend renders."""
 
@@ -35,3 +59,40 @@ class QueryResponse(BaseModel):
     answer: str
     confidence: float | None
     citations: list[CitationOut]
+    debug: DebugStages | None = None
+
+
+class RetrievalMetricsOut(BaseModel):
+    """Mean retrieval metrics for one experiment run."""
+
+    hit_rate: float
+    mrr: float
+    ndcg: float
+    precision_at_k: float
+    recall_at_k: float
+
+
+class RagasMetricsOut(BaseModel):
+    """Mean RAGAS metrics for one experiment run — any may be null if that metric errored."""
+
+    faithfulness: float | None
+    answer_relevancy: float | None
+    context_precision: float | None
+    context_recall: float | None
+
+
+class ExperimentRunOut(BaseModel):
+    """One row of data/eval/experiment_log.jsonl, reshaped for the eval dashboard."""
+
+    config_name: str
+    num_examples: int
+    generation_provider: str | None
+    generation_model: str | None
+    retrieval: RetrievalMetricsOut
+    ragas: RagasMetricsOut
+
+
+class EvalSummaryResponse(BaseModel):
+    """Body of GET /eval/summary — every logged experiment run, most recent first."""
+
+    runs: list[ExperimentRunOut]

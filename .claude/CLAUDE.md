@@ -82,7 +82,9 @@ python scripts/run_eval.py --config configs/base.yaml
 ```
 
 ## Current Phase
-Phase 8 — Frontend + Deployment (chat + citations v1 built and verified end-to-end; see Phase 8 Notes)
+Phase 8 — Frontend + Deployment (chat + citations, retrieval debug panel,
+eval dashboard, and visual restyle all built and verified end-to-end;
+deployment is the only remaining item — see Phase 8 Notes)
 
 ## Phase 6 Notes
 - `Generator` wires `ContextAssembler` + `GroqClient` (was `OllamaClient`
@@ -159,8 +161,9 @@ Phase 8 — Frontend + Deployment (chat + citations v1 built and verified end-to
 - Deployment: backend already runs on Groq (see LLM Provider Migration Notes) — no separate local/prod LLM split needed anymore, one fewer thing to configure for deployment.
 
 ### Phase 8 Notes
-- Cut v1 scope to chat + citations only (first slice) — debug panel and
-  eval dashboard deferred to a later pass, not built yet.
+- v1 (chat + citations) shipped first; this pass added the retrieval
+  debug panel + eval dashboard that v1 deferred, plus a full visual
+  restyle. Deployment is still the only thing left in Phase 8.
 - `src/api/main.py`: FastAPI app, `lifespan` builds every Phase 4-6
   component (`QueryAnalyzer`, `QueryTransformer`, `QueryDecomposer`,
   `RetrievalPipeline`, `Generator`) once at startup and stashes them on
@@ -169,23 +172,65 @@ Phase 8 — Frontend + Deployment (chat + citations v1 built and verified end-to
   that cost per-request would make every query slow. `POST /query` runs
   the same intent -> transform -> decompose -> retrieve -> generate
   sequence `scripts/generate.py` uses.
+  - `QueryRequest.debug: bool` opts into `_run_debug_stages()`, which
+    replays dense/sparse/hybrid(RRF)/reranked over the raw query alone —
+    same shape as `scripts/retrieve.py`'s CLI output — and attaches it as
+    `QueryResponse.debug`. Off by default: it's 3 extra retrieval calls
+    on top of the pipeline's own (multi-variant) retrieval, so it would
+    roughly double per-query latency on this machine's BGE-M3/MPS setup
+    if always on.
+  - `GET /eval/summary` reads `data/eval/experiment_log.jsonl` (the same
+    file `scripts/run_eval.py` appends to via `log_experiment`) on every
+    request, not cached at startup — the dashboard should reflect a new
+    `run_eval.py` run without an API restart.
 - `src/api/models.py` defines `QueryRequest`/`QueryResponse` as a
   deliberately separate contract from `src/generation/models.py`'s
   `GeneratedAnswer`/`Citation` — an internal Phase 6 rename shouldn't
-  silently break the frontend.
+  silently break the frontend. `DebugStages`/`DebugHit` and
+  `ExperimentRunOut`/`EvalSummaryResponse` follow the same pattern for
+  the debug panel and eval dashboard.
   CORS is locked to `http://localhost:3000` (the Next.js dev origin).
 - `frontend/`: Next.js 16 (App Router, TS, Tailwind v4) + shadcn/ui
-  (button, textarea, card, badge, skeleton). Single client page
-  (`src/app/page.tsx`) — textarea, submit on Enter, fetches
-  `NEXT_PUBLIC_API_URL` (`.env.local`, defaults to
-  `http://localhost:8000`) `/query`, renders answer + confidence +
-  citation badges, loading skeleton while waiting.
+  (`style: "base-nova"`, `@base-ui/react` primitives, not Radix — this is
+  a pre-release Next.js/shadcn pairing, check `node_modules/next/dist/docs`
+  before assuming Radix-era APIs). Two routes: `/` (chat, client
+  component) and `/eval` (dashboard, server component — fetches
+  `/eval/summary` at request time, no client JS needed for a read-only
+  view).
+  - `/`: textarea, submit on Enter, a "Retrieval debug" switch that sets
+    `QueryRequest.debug`; renders answer + citation badges always, and
+    a tabbed dense/sparse/hybrid/reranked hit table (shadcn `Tabs` +
+    `Table`) only when `response.debug` came back non-null.
+  - `/eval`: metric cards for the most recent logged run + a comparison
+    table across every run in `experiment_log.jsonl`.
+  - Visual style: bold/sticker-ish on the user's request ("as good
+    looking as possible, keep behavior minimal") — thick black borders +
+    hard offset shadows (`shadow-[Npx_Npx_0_0_#000]`, no blur) on
+    `Card`/`Button`/`Textarea`, sticker-colored `Badge` variants
+    (`amber`/`rose`/`violet`/`emerald` added alongside the default shadcn
+    ones, used for citations/confidence), dotted background + two blurred
+    color blobs in `layout.tsx` for the glow. This only touched
+    `components/ui/*.tsx` base styles and `globals.css`/`layout.tsx` —
+    no new behavior, same data flow as before the restyle.
 - Verified end-to-end with Playwright (headless Chromium, installed
   ad hoc — not a repo dependency): asked "What was Apple's FY2023 net
-  sales?" against the real Qdrant index, got "$383,285 million [1], [3]"
-  with confidence 1.00 and two AAPL 10-K FY2023 Item 8 citation badges,
-  zero browser console errors. Matches AAPL's actual reported FY2023 net
-  sales.
+  sales?" with `debug: true` against the real Qdrant index, got
+  "$383,285 million [1], [3]" with confidence 1.00, two AAPL 10-K
+  FY2023 Item 8 citations, and a populated 4-stage debug breakdown
+  (dense top hit score 0.69, same Item 8 chunk). `/eval` dashboard
+  screenshot-verified against the real `experiment_log.jsonl` (2 logged
+  runs: `groq_smoke_test`, `smoke_test`).
+  - Caution for future sessions: a stale `uvicorn` process from an
+    earlier session was still holding the Qdrant embedded-mode lock
+    (`data/index/qdrant_local` only allows one client) and serving
+    pre-restyle code — had to `kill` it before the new code could bind
+    the port. If `/query`/`/eval/summary` 500s with a Qdrant
+    `AlreadyLocked` error, check for a leftover `uvicorn` process first.
+  - Caution: BGE-M3 dense encoding on this machine's MPS device is
+    inconsistent under concurrent load (single-variant batches ranged
+    6s-50s when a second request hit the API at the same time) — don't
+    fire concurrent test queries at a backend someone else (or another
+    script) is actively using.
 - Run it: `uvicorn src.api.main:app --port 8000` (backend) +
   `cd frontend && npm run dev` (frontend, port 3000).
 
