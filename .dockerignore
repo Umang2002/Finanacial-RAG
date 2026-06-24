@@ -1,0 +1,12 @@
+.venv
+node_modules
+frontend
+notebooks
+tests
+docs
+.git
+data/raw
+data/processed
+.env
+*.pyc
+__pycache__

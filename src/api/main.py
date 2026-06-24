@@ -14,6 +14,7 @@ runtime. Rebuilding per request would make every query pay that cost.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -63,9 +64,12 @@ app = FastAPI(title="Financial RAG API", lifespan=lifespan)
 
 # LEARN: Next.js dev server runs on :3000, this API on :8000 — different
 # origins, so the browser blocks the fetch without explicit CORS allowance.
+# CORS_ORIGINS (comma-separated) lets the deployed Vercel origin in without
+# hardcoding it — localhost:3000 stays allowed for local dev either way.
+_extra_origins = [o for o in os.environ.get("CORS_ORIGINS", "").split(",") if o]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", *_extra_origins],
     allow_methods=["*"],
     allow_headers=["*"],
 )
