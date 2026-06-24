@@ -13,9 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 
-# WHY CPU wheel index for torch: default PyPI torch ships CUDA builds (~2GB extra),
-# HF Spaces free CPU tier never uses a GPU.
-RUN pip install --no-cache-dir torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu \
+# WHY CPU wheel index for torch+torchvision together: default PyPI torch ships
+# CUDA builds (~2GB extra, unused on HF's free CPU tier); pinning torchvision
+# here too avoids pip later pulling a mismatched GPU torchvision as some other
+# package's transitive dep, which breaks transformers' torchvision::nms op lookup.
+RUN pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
